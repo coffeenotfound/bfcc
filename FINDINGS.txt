@@ -1,4 +1,11 @@
 
 * having uchar* b and uchar* c being global vars, REALLY shittifies codegen, for some reason
 	- https://godbolt.org/z/K7af3qdzr
+
 * avx improves codegen quite a bit via vector loads and permutes of adjacent cells
+
+* observation: storing things to tape that we only need temporary is slow because we actually have to write to tape
+	idea: aggressively figure out lifetime-end of values, potentially figure out way to transform bf to some SSA form
+
+* even simple loops to set a cell to zero are emitted
+	-> do actual analysis to transform these (obvious first approach, but just pointing it out here too)

@@ -25,7 +25,8 @@ fn main() -> Result<(), anyhow::Error> {
 //		return Ok(());
 //	}
 	
-	let code = include_bytes!("../hello_world.bf");
+//	let code = include_bytes!("../snippets/hello_world.bf");
+	let code = include_bytes!("../snippets/golden.bf");
 	
 	// Lex code
 	let toks = parse(code)?;
