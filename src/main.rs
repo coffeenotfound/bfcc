@@ -1,10 +1,12 @@
 pub mod parse;
+pub mod opt;
 
 use std::{env, fmt, fs};
 use std::ffi::OsStr;
 use std::fmt::{Formatter, Write};
 use std::process::{Command, Stdio};
 use anyhow::bail;
+use crate::opt::main_opt;
 use crate::parse::{parse, remove_frontmatter_tokens, Token};
 
 struct FmtIndent(usize);
@@ -18,10 +20,11 @@ impl fmt::Display for FmtIndent {
 }
 
 fn main() -> Result<(), anyhow::Error> {
-//	main_anal()?;
-//	if 1 != 2 {
-//		return Ok(());
-//	}
+	// Run new backend instead
+	main_opt()?;
+	if 1 != 2 {
+		return Ok(());
+	}
 	
 //	let code = include_bytes!("../snippets/hello_world.bf");
 	let code = include_bytes!("../snippets/golden.bf");
