@@ -1,8 +1,11 @@
+#![feature(exit_status_error)]
+
 mod anal;
 
 use std::{env, fmt, fs};
+use std::ffi::OsStr;
 use std::fmt::{Formatter, Write};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use anyhow::bail;
 use crate::anal::main_anal;
 
@@ -81,20 +84,8 @@ fn main() -> Result<(), anyhow::Error> {
 	let toks = new_toks;
 	
 	// Lower to C
-	let mut c = String::new();
-	
-	let mut ind = FmtIndent(1);
-	
-	_ = writeln!(c, "#include <stdlib.h>");
-	_ = writeln!(c, "#include <stdio.h>");
-	_ = writeln!(c, "#include <string.h>");
-	_ = writeln!(c, "");
-	_ = writeln!(c, "#define NUM_CELLS (32*1024)");
-	_ = writeln!(c, "");
-	_ = writeln!(c, "int main() {{");
-	_ = writeln!(c, "{ind}unsigned char *b = calloc(NUM_CELLS, sizeof(unsigned char));");
-	_ = writeln!(c, "{ind}unsigned char *c = b;");
-	_ = writeln!(c, "{ind}");
+	let out_buf_len = 32;
+	let mut out_buf_offset = 0;
 	
 	struct Frame {
 		curr_offset: i32,
@@ -113,6 +104,12 @@ fn main() -> Result<(), anyhow::Error> {
 		}
 	};
 	
+	// Read c boilerplate
+	let mut whole_c = fs::read_to_string("boilerplate.c")?;
+	whole_c = whole_c.replace("/*OUT_BUF_LEN*/", &format!("{out_buf_len}"));
+	
+	let mut c = String::new();
+	
 	let mut tok_idx = 0;
 	while !(tok_idx >= toks.len()) {
 		let frame = frames.last_mut().unwrap();
@@ -128,19 +125,26 @@ fn main() -> Result<(), anyhow::Error> {
 //				_ = writeln!(c, "{ind}c += {num}ull;");
 			}
 			Token::Incr(num) => {
-				_ = writeln!(c, "{ind}*(c{}) += {};", print_offset(frame.curr_offset), num & 0xff);
+				_ = writeln!(c, "c[{}] += {};", frame.curr_offset, num & 0xff);
 			}
 			Token::Decr(num) => {
-				_ = writeln!(c, "{ind}*(c{}) -= {};", print_offset(frame.curr_offset), num & 0xff);
+				_ = writeln!(c, "c[{}] -= {};", frame.curr_offset, num & 0xff);
 			}
 			Token::Out(num) => {
-				for _ in 0..*num {
-					_ = writeln!(c, "{ind}putchar(*(c{}));", print_offset(frame.curr_offset));
+//				for _ in 0..*num {
+//					_ = writeln!(c, "{ind}putchar(*(c{}));", print_offset(frame.curr_offset));
+//				}
+				_ = writeln!(c, "o[{}] = c[{}];", out_buf_offset, frame.curr_offset);
+				out_buf_offset += 1;
+				
+				if out_buf_offset >= out_buf_len {
+					_ = writeln!(c, "print_now({out_buf_offset});");
+					out_buf_offset = 0;
 				}
 			}
 			Token::In(num) => {
 				for _ in 0..*num {
-					_ = writeln!(c, "{ind}*(c{}) = getchar();", print_offset(frame.curr_offset));
+					_ = writeln!(c, "c[{}] = getchar();", frame.curr_offset);
 				}
 			}
 			Token::LoopStart => {
@@ -148,9 +152,14 @@ fn main() -> Result<(), anyhow::Error> {
 				// the new loop
 				// TODO: If the loop is head-neutral, I think
 				//  we could skip this, but we don't analyze for that yet
-				
-				_ = writeln!(c, "{ind}c = c{};", print_offset(frame.curr_offset));
+				_ = writeln!(c, "c = c{};", print_offset(frame.curr_offset));
 				frame.curr_offset = 0; // reset
+				
+				// Materialize out buffer
+				if out_buf_offset > 0 {
+					_ = writeln!(c, "print_now({out_buf_offset});");
+					out_buf_offset = 0;
+				}
 				
 				// Push new frame
 				frames.push(Frame {
@@ -158,50 +167,87 @@ fn main() -> Result<(), anyhow::Error> {
 				});
 				
 				// Start while loop
-				_ = writeln!(c, "{ind}while (*c) {{");
-				ind.0 += 1;
+				_ = writeln!(c, "while (*c) {{");
 			}
 			Token::LoopEnd => {
 				// Materialize the frame offset before
 				// the loop end
 				// TODO: If the loop is head-neutral, I think
 				//  we could skip this, but we don't analyze for that yet
+				_ = writeln!(c, "c = c{};", print_offset(frame.curr_offset));
 				
-				_ = writeln!(c, "{ind}c = c{};", print_offset(frame.curr_offset));
+				// Materialize out buffer
+				if out_buf_offset > 0 {
+					_ = writeln!(c, "print_now({out_buf_offset});");
+					out_buf_offset = 0;
+				}
 				
 				// Pop frame
 				frames.pop();
 				
 				// End while loop
-				ind.0 -= 1;
-				_ = writeln!(c, "{ind}}}");
+				_ = writeln!(c, "}}");
 			}
 		}
 		
 		tok_idx += 1;
 	}
-	_ = writeln!(c, "");
-	_ = writeln!(c, "{ind}free(b);");
-	_ = writeln!(c, "{ind}return 0;");
-	_ = writeln!(c, "}}");
 	
-	fs::write("out.c", c).unwrap();
+	// Materialize out buffer
+	if out_buf_offset > 0 {
+		_ = writeln!(c, "print_now({out_buf_offset});");
+	}
+	
+	whole_c = whole_c.replace("/*MAIN_CODE*/", &c);
+	
+	fs::write("out.c", &whole_c)?;
+	
+	// Clang-format generated c
+	exec_process(
+		"clang-format",
+		[
+			"-style={BasedOnStyle: WebKit, UseTab: Always, IndentWidth: 4, TabWidth: 4}",
+			"-i", "out.c",
+		]
+	)?;
 	
 	// Compile generated c
-	Command::new("clang")
-		.args([
+	exec_process(
+		"clang",
+		[
 			"-O3",
+			"-march=znver2",  // good baseline
 			"-o", "out",
 			"out.c",
-		])
-		.spawn()?
-		.wait()?;
+		],
+	)?;
 	
 	// Run compiled program
 	println!("--- running compiled binary ---");
 	Command::new(env::current_dir()?.join("out"))
 		.spawn()?
 		.wait()?;
+	
+	Ok(())
+}
+
+fn exec_process<I, S>(
+	binary: &str,
+	args: I,
+) -> Result<(), anyhow::Error> where 
+	I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>
+{
+	let exit_status = Command::new(binary)
+		.args(args)
+		.stdout(Stdio::inherit())
+		.stderr(Stdio::inherit())
+		.spawn()?
+		.wait()?;
+	
+	if !exit_status.success() {
+		bail!("process exited with non-zero status: {exit_status}");
+	}
 	
 	Ok(())
 }

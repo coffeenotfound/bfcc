@@ -1,0 +1,4 @@
+
+* having uchar* b and uchar* c being global vars, REALLY shittifies codegen, for some reason
+	- https://godbolt.org/z/K7af3qdzr
+* avx improves codegen quite a bit via vector loads and permutes of adjacent cells
