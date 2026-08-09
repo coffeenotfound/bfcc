@@ -139,7 +139,7 @@ fn main() -> Result<(), anyhow::Error> {
 				out_buf_offset += 1;
 				
 				if out_buf_offset >= out_buf_len {
-					_ = writeln!(c, "print_now({out_buf_offset});");
+					_ = writeln!(c, "print_now(o, {out_buf_offset});");
 					out_buf_offset = 0;
 				}
 			}
@@ -153,12 +153,14 @@ fn main() -> Result<(), anyhow::Error> {
 				// the new loop
 				// TODO: If the loop is head-neutral, I think
 				//  we could skip this, but we don't analyze for that yet
-				_ = writeln!(c, "c = c{};", print_offset(frame.curr_offset));
+				if frame.curr_offset != 0 {
+					_ = writeln!(c, "c = c{};", print_offset(frame.curr_offset));
+				}
 				frame.curr_offset = 0; // reset
 				
 				// Materialize out buffer
 				if out_buf_offset > 0 {
-					_ = writeln!(c, "print_now({out_buf_offset});");
+					_ = writeln!(c, "print_now(o, {out_buf_offset});");
 					out_buf_offset = 0;
 				}
 				
@@ -175,11 +177,13 @@ fn main() -> Result<(), anyhow::Error> {
 				// the loop end
 				// TODO: If the loop is head-neutral, I think
 				//  we could skip this, but we don't analyze for that yet
-				_ = writeln!(c, "c = c{};", print_offset(frame.curr_offset));
+				if frame.curr_offset != 0 {
+					_ = writeln!(c, "c = c{};", print_offset(frame.curr_offset));
+				}
 				
 				// Materialize out buffer
 				if out_buf_offset > 0 {
-					_ = writeln!(c, "print_now({out_buf_offset});");
+					_ = writeln!(c, "print_now(o, {out_buf_offset});");
 					out_buf_offset = 0;
 				}
 				
@@ -196,7 +200,7 @@ fn main() -> Result<(), anyhow::Error> {
 	
 	// Materialize out buffer
 	if out_buf_offset > 0 {
-		_ = writeln!(c, "print_now({out_buf_offset});");
+		_ = writeln!(c, "print_now(o, {out_buf_offset});");
 	}
 	
 	whole_c = whole_c.replace("/*MAIN_CODE*/", &c);
