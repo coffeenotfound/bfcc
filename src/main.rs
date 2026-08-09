@@ -134,9 +134,9 @@ fn main() -> Result<(), anyhow::Error> {
 				_ = writeln!(c, "{ind}*(c{}) -= {};", print_offset(frame.curr_offset), num & 0xff);
 			}
 			Token::Out(num) => {
-//				for _ in 0..*num {
-//					_ = writeln!(c, "{ind}putchar(*(c{}));", print_offset(frame.curr_offset));
-//				}
+				for _ in 0..*num {
+					_ = writeln!(c, "{ind}putchar(*(c{}));", print_offset(frame.curr_offset));
+				}
 			}
 			Token::In(num) => {
 				for _ in 0..*num {
