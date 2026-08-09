@@ -222,6 +222,7 @@ fn main() -> Result<(), anyhow::Error> {
 		[
 			"-O3",
 			"-march=znver2",  // good baseline
+			"-fwrapv",  // wrapping overflow is bf semantics
 			"-o", "out",
 			"out.c",
 		],
