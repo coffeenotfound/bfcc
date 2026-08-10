@@ -173,27 +173,27 @@ pub fn write_ir_body_to_c(
 		match op {
 			IrOp::Add { val, offset } => {
 				let sign = if val.is_positive() { "+" } else { "-" };
-				_ = writeln!(c, "c[{}] {}= {};", offset, sign, val.abs());
+				_ = writeln!(c, "h[{}] {}= {};", offset, sign, val.abs());
 			}
 			IrOp::Set { val, offset } => {
-				_ = writeln!(c, "c[{}] = {};", offset, *val as u8);
+				_ = writeln!(c, "h[{}] = {};", offset, *val as u8);
 			}
 			IrOp::AddMulFrom { src_offset, mul, dst_offset } => {
-				_ = writeln!(c, "c[{}] += c[{}] * {};", dst_offset, src_offset, mul);
+				_ = writeln!(c, "h[{}] += h[{}] * {};", dst_offset, src_offset, mul);
 			}
 			IrOp::Input { count, offset } => {
 				for _ in 0..*count {
-					_ = writeln!(c, "c[{}] = getchar();", offset);
+					_ = writeln!(c, "h[{}] = getchar();", offset);
 				}
 				
 			}
 			IrOp::Output { count, offset } => {
 				for _ in 0..*count {
-					_ = writeln!(c, "ob[{}] = c[{}];", out_buf_offset, offset);
+					_ = writeln!(c, "outb[{}] = h[{}];", out_buf_offset, offset);
 					out_buf_offset += 1;
 					
 					if out_buf_offset >= OUT_BUF_SIZE {
-						_ = writeln!(c, "print_now(ob, {out_buf_offset});");
+						_ = writeln!(c, "print_now(outb, {out_buf_offset});");
 						out_buf_offset = 0;
 					}
 				}
@@ -201,26 +201,26 @@ pub fn write_ir_body_to_c(
 			IrOp::Loop(lp) => {
 				// Materialize out buffer before loop
 				if out_buf_offset > 0 {
-					_ = writeln!(c, "print_now(ob, {out_buf_offset});");
+					_ = writeln!(c, "print_now(outb, {out_buf_offset});");
 					out_buf_offset = 0;
 				}
 				
 				// Move head before loop
 				if lp.move_head_prior > 0 {
-					_ = writeln!(c, "c += {};", lp.move_head_prior);
+					_ = writeln!(c, "h += {};", lp.move_head_prior);
 				} else if lp.move_head_prior < 0 {
-					_ = writeln!(c, "c -= {};", lp.move_head_prior.abs());
+					_ = writeln!(c, "h -= {};", lp.move_head_prior.abs());
 				}
 				
 				// Emit while loop
-				_ = writeln!(c, "while (*c) {{");
+				_ = writeln!(c, "while (h[0]) {{");
 				write_ir_body_to_c(c, &lp.body);
 				
 				// Move head after iter
 				if lp.move_head_after_iter > 0 {
-					_ = writeln!(c, "c += {};", lp.move_head_after_iter);
+					_ = writeln!(c, "h += {};", lp.move_head_after_iter);
 				} else if lp.move_head_after_iter < 0 {
-					_ = writeln!(c, "c -= {};", lp.move_head_after_iter.abs());
+					_ = writeln!(c, "h -= {};", lp.move_head_after_iter.abs());
 				}
 				
 				_ = writeln!(c, "}}");
@@ -230,7 +230,7 @@ pub fn write_ir_body_to_c(
 	
 	// Materialize out buffer before end
 	if out_buf_offset > 0 {
-		_ = writeln!(c, "print_now(ob, {out_buf_offset});");
+		_ = writeln!(c, "print_now(outb, {out_buf_offset});");
 	}
 }
 

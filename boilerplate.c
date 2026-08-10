@@ -12,12 +12,13 @@ void print_now(uchar* o, uint buf_len) {
 }
 
 int main() {
-	uchar* ob = calloc(/*OUT_BUF_LEN*/, 1);
-	uchar* b = calloc(NUM_CELLS, 1);
-	uchar* c = b;
+	uchar* outb = calloc(/*OUT_BUF_LEN*/, 1);
+	uchar* tape = calloc(NUM_CELLS, 1);
+	uchar* h = tape;
 	
 	/*MAIN_CODE*/
 	
-	free(b);
+	free(tape);
+	free(outb);
 	return 0;
 }
