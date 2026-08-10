@@ -6,9 +6,10 @@ use crate::exec_process;
 use crate::parse::{parse, remove_frontmatter_tokens, Token};
 
 pub fn main_opt() -> Result<(), anyhow::Error> {
-	let code = include_bytes!("../snippets/hello_world.bf");
-//	let code = include_bytes!("../snippets/golden.bf");
+//	let code = include_bytes!("../snippets/hello_world.bf");
+	let code = include_bytes!("../snippets/golden.bf");
 //	let code = b"[hello]+++[>++>+++<<-]";
+//	let code = b"+++++++[>+++++++<-]>.[-]<+++++++[>+++++++<-]>.";
 	
 	// Lex code
 	let toks = parse(code)?;
@@ -88,7 +89,7 @@ pub fn opt_remove_frontmatter(
 
 pub fn opt_mul_loops(
 	block: &mut Vec<IrOp>,
-) -> bool {
+) -> (bool, i32) {
 	let mut did_something = false;
 	
 	// TODO: giga-inefficient
@@ -115,19 +116,22 @@ pub fn opt_mul_loops(
 			}
 			
 			// analyze sub loops
-			did_something |= opt_mul_loops(&mut loop_.body);
+			let (sub_did_something, sub_leftover) = opt_mul_loops(&mut loop_.body);
+            did_something |= sub_did_something;
+            loop_.move_head_after_iter += sub_leftover;
 			
 			if !definitely_not_a_mul_loop {
 				// We can only opt mul loops with induction delta = -1 for now
 				if let Some(&induction_delta) = offset_to_incr_delta.get(&0)
 					&& induction_delta == -1
+					&& loop_.move_head_after_iter == 0
 				{
 					for (&offset, &incr_delta) in &offset_to_incr_delta {
 						if offset != 0 {
 							new_block.push(IrOp::AddMulFrom {
-								src_offset: loop_.move_head_prior + additional_offset_to_apply,
+								src_offset: loop_.move_head_prior,
 								mul: incr_delta,
-								dst_offset: loop_.move_head_prior + offset + additional_offset_to_apply,
+								dst_offset: loop_.move_head_prior + offset,
 							});
 						}
 					}
@@ -137,7 +141,7 @@ pub fn opt_mul_loops(
 						val: 0,
 					});
 					
-					additional_offset_to_apply += loop_.move_head_prior;
+					additional_offset_to_apply = loop_.move_head_prior;
 					replaced_op = true;
 				}
 			}
@@ -158,7 +162,7 @@ pub fn opt_mul_loops(
 	
 	*block = new_block;
 	
-	did_something
+	(did_something, additional_offset_to_apply)
 }
 
 const OUT_BUF_SIZE: usize = 32;
