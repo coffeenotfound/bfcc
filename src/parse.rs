@@ -2,12 +2,12 @@ use anyhow::bail;
 
 #[derive(Clone, Debug)] 
 pub enum Token {
-	Left(u64),
-	Right(u64),
-	Incr(u64),
-	Decr(u64),
-	Out(u64),
-	In(u64),
+	Left(u32),
+	Right(u32),
+	Incr(u32),
+	Decr(u32),
+	Out(u32),
+	In(u32),
 	LoopStart,
 	LoopEnd,
 }
@@ -16,7 +16,7 @@ pub fn parse(text: &[u8]) -> Result<Vec<Token>, anyhow::Error> {
 	macro_rules! op_with_num {
 		($name:ident; $ir:expr) => {
 			if let Some(Token::$name(num)) = $ir.last_mut()
-				&& *num < u64::MAX
+				&& *num < u32::MAX
 			{
 				*num += 1;
 			} else {

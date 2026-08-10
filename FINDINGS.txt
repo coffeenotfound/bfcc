@@ -9,3 +9,14 @@
 
 * even simple loops to set a cell to zero are emitted
 	-> do actual analysis to transform these (obvious first approach, but just pointing it out here too)
+
+
+!!!! converting to a fancier bf ir doesn't work, we need an actual ir form
+	- e.g. two nested multiply loops: Incr -> LoadFrom(mul) works but LoadFrom(mul) -> LoadFrom(mul*mul) doesn't!
+	[ WRONG ] I think it may work
+
+
+!!!! the most important optims might be:
+	* SCCP -- but more to help alias analysis (determine when scan loops stop), and less const prop (which llvm can then do with good alias analysis)
+		- [ MAYBE WRONG ] const prop itself could already optimize inner loops very well
+	* alias analysis (so we can hoist temporary cells into local/ssa vars)
