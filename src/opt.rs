@@ -94,16 +94,19 @@ pub fn opt_mul_loops(
 	// TODO: giga-inefficient
 	let mut new_block = vec![];
 	let mut offset_to_incr_delta = BTreeMap::<i32, i32>::new();
+	let mut additional_offset_to_apply = 0;
 	
 	for op in block.iter_mut() {
 		let mut replaced_op = false;
+		
+		op.adjust_offsets(additional_offset_to_apply);
 		
 		if let IrOp::Loop(loop_) = op {
 			let mut definitely_not_a_mul_loop = false;
 			offset_to_incr_delta.clear();
 			
 			for loop_op in loop_.body.iter() {
-				if let IrOp::Incr { val, offset } = loop_op{
+				if let IrOp::Add { val, offset } = loop_op{
 					*offset_to_incr_delta.entry(*offset).or_insert(0) += *val;
 				} else {
 					definitely_not_a_mul_loop = true;
@@ -115,16 +118,16 @@ pub fn opt_mul_loops(
 			did_something |= opt_mul_loops(&mut loop_.body);
 			
 			if !definitely_not_a_mul_loop {
-				// We can only opt mul loop with induction delta = -1 for now
+				// We can only opt mul loops with induction delta = -1 for now
 				if let Some(&induction_delta) = offset_to_incr_delta.get(&0)
 					&& induction_delta == -1
 				{
 					for (&offset, &incr_delta) in &offset_to_incr_delta {
 						if offset != 0 {
-							new_block.push(IrOp::MulBy {
-								src_offset: loop_.move_head_prior,
+							new_block.push(IrOp::AddMulFrom {
+								src_offset: loop_.move_head_prior + additional_offset_to_apply,
 								mul: incr_delta,
-								dst_offset: loop_.move_head_prior + offset,
+								dst_offset: loop_.move_head_prior + offset + additional_offset_to_apply,
 							});
 						}
 					}
@@ -134,6 +137,7 @@ pub fn opt_mul_loops(
 						val: 0,
 					});
 					
+					additional_offset_to_apply += loop_.move_head_prior;
 					replaced_op = true;
 				}
 			}
@@ -142,6 +146,12 @@ pub fn opt_mul_loops(
 		if replaced_op {
 			did_something = true;
 		} else {
+			// If its a loop and we didn't replace it,
+			// we cannot assumme to carry through the running offset
+			if matches!(op, IrOp::Loop(..)) {
+				additional_offset_to_apply = 0;
+			}
+			
 			new_block.push(op.clone());
 		}
 	}
@@ -161,15 +171,15 @@ pub fn write_ir_body_to_c(
 	
 	for op in ir {
 		match op {
-			IrOp::Incr { val, offset } => {
+			IrOp::Add { val, offset } => {
 				let sign = if val.is_positive() { "+" } else { "-" };
 				_ = writeln!(c, "c[{}] {}= {};", offset, sign, val.abs());
 			}
 			IrOp::Set { val, offset } => {
 				_ = writeln!(c, "c[{}] = {};", offset, *val as u8);
 			}
-			IrOp::MulBy { src_offset, mul, dst_offset } => {
-				_ = writeln!(c, "c[{}] = c[{}] * {};", dst_offset, src_offset, mul);
+			IrOp::AddMulFrom { src_offset, mul, dst_offset } => {
+				_ = writeln!(c, "c[{}] += c[{}] * {};", dst_offset, src_offset, mul);
 			}
 			IrOp::Input { count, offset } => {
 				for _ in 0..*count {
@@ -178,18 +188,20 @@ pub fn write_ir_body_to_c(
 				
 			}
 			IrOp::Output { count, offset } => {
-				_ = writeln!(c, "o[{}] = c[{}];", out_buf_offset, offset);
-				out_buf_offset += 1;
-				
-				if out_buf_offset >= OUT_BUF_SIZE {
-					_ = writeln!(c, "print_now(o, {out_buf_offset});");
-					out_buf_offset = 0;
+				for _ in 0..*count {
+					_ = writeln!(c, "ob[{}] = c[{}];", out_buf_offset, offset);
+					out_buf_offset += 1;
+					
+					if out_buf_offset >= OUT_BUF_SIZE {
+						_ = writeln!(c, "print_now(ob, {out_buf_offset});");
+						out_buf_offset = 0;
+					}
 				}
 			}
 			IrOp::Loop(lp) => {
 				// Materialize out buffer before loop
 				if out_buf_offset > 0 {
-					_ = writeln!(c, "print_now(o, {out_buf_offset});");
+					_ = writeln!(c, "print_now(ob, {out_buf_offset});");
 					out_buf_offset = 0;
 				}
 				
@@ -218,7 +230,7 @@ pub fn write_ir_body_to_c(
 	
 	// Materialize out buffer before end
 	if out_buf_offset > 0 {
-		_ = writeln!(c, "print_now(o, {out_buf_offset});");
+		_ = writeln!(c, "print_now(ob, {out_buf_offset});");
 	}
 }
 
@@ -240,13 +252,13 @@ pub fn construct_ir(
 				head_offset += *num as i32;
 			}
 			Token::Incr(num) => {
-				ops.push(IrOp::Incr {
+				ops.push(IrOp::Add {
 					val: *num as i32,
 					offset: head_offset,
 				});
 			}
 			Token::Decr(num) => {
-				ops.push(IrOp::Incr {
+				ops.push(IrOp::Add {
 					val: -(*num as i32),
 					offset: head_offset,
 				});
@@ -289,7 +301,7 @@ pub fn construct_ir(
 
 #[derive(Clone, Debug)]
 pub enum IrOp {
-	Incr {
+	Add {
 		val: i32,
 		offset: i32,
 	},
@@ -297,7 +309,7 @@ pub enum IrOp {
 		val: i32,
 		offset: i32,
 	},
-	MulBy {
+	AddMulFrom {
 		src_offset: i32,
 		/// TODO: For now we only support loops with induction_delta = -1,
 		///  since those are the easiest
@@ -330,13 +342,27 @@ impl IrOp {
 	/// Loop body is not counted, loops always return false
 	pub fn writes_cells_by_itself(&self) -> bool {
 		match self {
-			IrOp::Incr { .. }
+			IrOp::Add { .. }
 			| IrOp::Set { .. }
-			| IrOp::MulBy { .. }
+			| IrOp::AddMulFrom { .. }
 			| IrOp::Input { .. } => true,
 			
 			IrOp::Output { .. }
 			| IrOp::Loop(..) => false,
+		}
+	}
+	
+	pub fn adjust_offsets(&mut self, add_offset: i32) {
+		match self {
+			IrOp::Add { offset, .. } => *offset += add_offset,
+			IrOp::Set { offset, .. } => *offset += add_offset,
+			IrOp::AddMulFrom { src_offset, dst_offset, .. } => {
+				*src_offset += add_offset;
+				*dst_offset += add_offset;
+			}
+			IrOp::Input { offset, .. } => *offset += add_offset,
+			IrOp::Output { offset, .. } => *offset += add_offset,
+			IrOp::Loop(lp) => lp.move_head_prior += add_offset,
 		}
 	}
 }

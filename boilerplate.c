@@ -12,7 +12,7 @@ void print_now(uchar* o, uint buf_len) {
 }
 
 int main() {
-	uchar* o = calloc(/*OUT_BUF_LEN*/, 1);
+	uchar* ob = calloc(/*OUT_BUF_LEN*/, 1);
 	uchar* b = calloc(NUM_CELLS, 1);
 	uchar* c = b;
 	
