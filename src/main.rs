@@ -1,5 +1,6 @@
 pub mod parse;
 pub mod opt;
+pub mod patch_iter;
 
 use crate::opt::main_opt;
 use crate::parse::{parse, remove_frontmatter_tokens, Token};
