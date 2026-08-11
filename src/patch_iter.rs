@@ -67,7 +67,7 @@ impl<'a, T> PatchIterMut<'a, T> {
 //	fn next(&mut self) -> Option<Self::Item> {
 //		self.has_patched_curr_elem = false;
 //		
-//		let elem = self.data.get_mut(self.next_idx)?;
+//		let elem = self.vec.get_mut(self.next_idx)?;
 //		self.next_idx += 1;
 //		Some(elem)
 //	}

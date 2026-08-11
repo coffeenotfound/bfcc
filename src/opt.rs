@@ -7,10 +7,10 @@ use std::{env, fs};
 use crate::patch_iter::PatchIterMut;
 
 pub fn main_opt() -> Result<(), anyhow::Error> {
-//	let code = include_bytes!("../snippets/hello_world.bf");
+	let code = include_bytes!("../snippets/hello_world.bf");
 //	let code = include_bytes!("../snippets/golden.bf");
 //	let code = include_bytes!("../snippets/life.bf");
-	let code = include_bytes!("../snippets/squares2.bf");
+//	let code = include_bytes!("../snippets/squares2.bf");
 //	let code = b"[hello]+++[>++>+++<<-]";
 //	let code = b"+++++++[>+++++++<-]>.[-]<+++++++[>+++++++<-]>.";
 	
@@ -39,6 +39,7 @@ pub fn main_opt() -> Result<(), anyhow::Error> {
 	// Optimize code
 	let mut opt_ir = ir_root.clone();
 	opt_remove_frontmatter(&mut opt_ir);
+//	opt_mul_loops(&mut opt_ir);
 	opt_mul_loops(&mut opt_ir);
 	
 	println!("{opt_ir:#?}");
@@ -90,35 +91,30 @@ pub fn main_opt() -> Result<(), anyhow::Error> {
 pub fn opt_remove_frontmatter(
 	root: &mut Vec<IrOp>,
 ) {
-	let mut new_ops = vec![];
 	let mut emit_everything_now = false;
 	
-	for (idx, op) in root.iter().enumerate() {
+	let mut patcher = PatchIterMut::new(root);
+	while let Some(op) = patcher.next() {
 		if op.writes_cells_by_itself() {
 			emit_everything_now = true;
 		}
 		
-		if !matches!(op, IrOp::Loop(..)) || emit_everything_now {
-			new_ops.push(op.clone());
+		let emit = !matches!(op, IrOp::Loop(..)) || emit_everything_now;
+		if !emit {
+			patcher.patch_elem([]);
 		}
 	}
-	
-	*root = new_ops;
 }
 
 pub fn opt_mul_loops(
 	block: &mut Vec<IrOp>,
 ) -> (bool, i32) {
 	let mut did_something = false;
-	
-	// TODO: giga-inefficient
-	let mut new_block = vec![];
 	let mut offset_to_incr_delta = BTreeMap::<i32, i32>::new();
 	let mut additional_offset_to_apply = 0;
 	
-	for op in block.iter_mut() {
-		let mut replaced_op = false;
-		
+	let mut patcher = PatchIterMut::new(block);
+	while let Some(op) = patcher.next() {
 		op.adjust_offsets(additional_offset_to_apply);
 		
 		if let IrOp::Loop(loop_) = op {
@@ -145,9 +141,11 @@ pub fn opt_mul_loops(
 					&& induction_delta == -1
 					&& loop_.move_head_after_iter == 0
 				{
+					let mut replace_ops = vec![];
+					
 					for (&offset, &incr_delta) in &offset_to_incr_delta {
 						if offset != 0 {
-							new_block.push(IrOp::AddMulFrom {
+							replace_ops.push(IrOp::AddMulFrom {
 								src_offset: loop_.move_head_prior,
 								mul: incr_delta,
 								dst_offset: loop_.move_head_prior + offset,
@@ -155,31 +153,25 @@ pub fn opt_mul_loops(
 						}
 					}
 					
-					new_block.push(IrOp::Set {
+					replace_ops.push(IrOp::Set {
 						offset: loop_.move_head_prior,
 						val: 0,
 					});
 					
 					additional_offset_to_apply = loop_.move_head_prior;
-					replaced_op = true;
+					patcher.patch_elem(replace_ops);
 				}
 			}
 		}
 		
-		if replaced_op {
-			did_something = true;
-		} else {
-			// If its a loop and we didn't replace it,
-			// we cannot assumme to carry through the running offset
-			if matches!(op, IrOp::Loop(..)) {
-				additional_offset_to_apply = 0;
-			}
-			
-			new_block.push(op.clone());
+		let op = patcher.get_again();
+		
+		// If its a loop and we didn't replace it,
+		// we cannot assumme to carry through the running offset
+		if matches!(op, IrOp::Loop(..)) {
+			additional_offset_to_apply = 0;
 		}
 	}
-	
-	*block = new_block;
 	
 	(did_something, additional_offset_to_apply)
 }
