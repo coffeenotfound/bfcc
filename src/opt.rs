@@ -1,15 +1,105 @@
-use std::fmt::Write;
-use std::collections::BTreeMap;
-use std::{env, fs};
-use std::process::{Command, Output};
 use crate::exec_process;
-use crate::parse::{parse, remove_frontmatter_tokens, Token};
+use crate::parse::{parse, Token};
+use std::collections::BTreeMap;
+use std::fmt::Write;
+use std::process::Command;
+use std::{env, fs};
+
+pub struct PatchIterMut<'a, T> {
+	data: &'a mut Vec<T>,
+	next_idx: usize,
+	has_patched_curr_elem: bool,
+}
+
+impl<'a, T> PatchIterMut<'a, T> {
+	pub fn new(data: &'a mut Vec<T>) -> Self {
+		Self {
+			data,
+			next_idx: 0,
+			has_patched_curr_elem: false,
+		}
+	}
+	
+	/// Gets the last yielded element again
+	/// 
+	/// Panics if the iterator hasn't yielded any elements (`next()`
+	/// was never called) or the iterator is exhausted 
+	pub fn get_again(&mut self) -> &mut T {
+		let idx = self.curr_idx();
+		&mut self.data[idx]
+	}
+	
+	/// Panics if the idx is invalid
+	pub fn curr_idx(&self) -> usize {
+		let idx = self.next_idx.checked_sub(1).expect("Never called next()");
+		if idx >= self.data.len() {
+			panic!("Iterator exhausted");
+		}
+		idx
+	}
+	
+	pub fn patch_elem(&mut self, new_elems: impl IntoIterator<Item = T>) {
+		assert_eq!(self.has_patched_curr_elem, false);
+		self.has_patched_curr_elem = true;
+		
+		let curr_idx = self.curr_idx();
+		let prev_len = self.data.len();
+		
+		self.data.splice(curr_idx..curr_idx+1, new_elems);
+		let new_len = self.data.len();
+		
+		// We shrunk
+		if prev_len > new_len {
+			self.next_idx -= prev_len - new_len;
+		}
+		else if prev_len < new_len {
+			self.next_idx += new_len - prev_len;
+		}
+	}
+	
+	fn next(&mut self) -> Option<&mut T> {
+		self.has_patched_curr_elem = false;
+		
+		let elem = self.data.get_mut(self.next_idx)?;
+		self.next_idx += 1;
+		Some(elem)
+	}
+}
+
+// Doesn't work because lifetime shit (would need LendingIterator)
+//impl<'a, T> Iterator for PatchIterMut<'a, T> {
+//	type Item = &'a mut T;
+//	
+//	fn next(&mut self) -> Option<Self::Item> {
+//		self.has_patched_curr_elem = false;
+//		
+//		let elem = self.data.get_mut(self.next_idx)?;
+//		self.next_idx += 1;
+//		Some(elem)
+//	}
+//}
 
 pub fn main_opt() -> Result<(), anyhow::Error> {
 //	let code = include_bytes!("../snippets/hello_world.bf");
-	let code = include_bytes!("../snippets/golden.bf");
+//	let code = include_bytes!("../snippets/golden.bf");
+//	let code = include_bytes!("../snippets/life.bf");
+	let code = include_bytes!("../snippets/squares2.bf");
 //	let code = b"[hello]+++[>++>+++<<-]";
 //	let code = b"+++++++[>+++++++<-]>.[-]<+++++++[>+++++++<-]>.";
+	
+	// TEST PatchIterMut
+	let mut test_vec = vec!["a", "b", "c", "d", "e"];
+	let mut test_iter = PatchIterMut::new(&mut test_vec);
+	
+	println!("before patching: {:?}", test_iter.data);
+	while let Some(e) = test_iter.next() {
+		println!("elem: {e:?}");
+		
+		if *e == "d" {
+			test_iter.patch_elem(["x", "y", "z"]);
+		}
+	}
+	println!("after patching: {test_vec:?}");
 	
 	// Lex code
 	let toks = parse(code)?;
@@ -17,12 +107,14 @@ pub fn main_opt() -> Result<(), anyhow::Error> {
 	
 	// Construct initial ir
 	let (ir_root, _) = construct_ir(&toks, &mut 0);
-	println!("{ir_root:#?}");
+//	println!("{ir_root:#?}");
 	
 	// Optimize code
 	let mut opt_ir = ir_root.clone();
 	opt_remove_frontmatter(&mut opt_ir);
 	opt_mul_loops(&mut opt_ir);
+	
+	println!("{opt_ir:#?}");
 	
 	{// Compile to c
 		let mut whole_c = fs::read_to_string("boilerplate.c")?;
@@ -57,7 +149,7 @@ pub fn main_opt() -> Result<(), anyhow::Error> {
 		)?;
 		
 		// Run compiled program
-		println!("--- running compiled binary ---");
+		println!("--- running compiled binary ---"); 
 		Command::new(env::current_dir()?.join("out"))
 			.spawn()?
 			.wait()?;

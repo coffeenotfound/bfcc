@@ -1,13 +1,13 @@
 pub mod parse;
 pub mod opt;
 
-use std::{env, fmt, fs};
+use crate::opt::main_opt;
+use crate::parse::{parse, remove_frontmatter_tokens, Token};
+use anyhow::bail;
 use std::ffi::OsStr;
 use std::fmt::{Formatter, Write};
 use std::process::{Command, Stdio};
-use anyhow::bail;
-use crate::opt::main_opt;
-use crate::parse::{parse, remove_frontmatter_tokens, Token};
+use std::{env, fmt, fs};
 
 struct FmtIndent(usize);
 impl fmt::Display for FmtIndent {
@@ -26,8 +26,9 @@ fn main() -> Result<(), anyhow::Error> {
 		return Ok(());
 	}
 	
-//	let code = include_bytes!("../snippets/hello_world.bf");
-	let code = include_bytes!("../snippets/golden.bf");
+	let code = include_bytes!("../snippets/hello_world.bf");
+//	let code = include_bytes!("../snippets/golden.bf");
+//	let code = include_bytes!("../snippets/life.bf");
 	
 	// Lex code
 	let toks = parse(code)?;
